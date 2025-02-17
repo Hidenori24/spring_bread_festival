@@ -1,0 +1,35 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+  <meta charset="UTF-8">
+  <title>パン祭りシール点数カウント</title>
+  <style>
+    body {
+      font-family: sans-serif;
+      text-align: center;
+      background: #f7f7f7;
+    }
+    video, canvas {
+      border: 1px solid #ccc;
+      border-radius: 4px;
+      margin-top: 10px;
+    }
+    #score {
+      font-size: 2em;
+      margin-top: 10px;
+    }
+  </style>
+</head>
+<body>
+  <h1>パン祭りシール点数カウント</h1>
+  <!-- カメラ映像 -->
+  <video id="video" width="640" height="480" autoplay playsinline></video>
+  <!-- デバッグ用のキャンバス（必要なら表示） -->
+  <canvas id="canvas" width="640" height="480" style="display: none;"></canvas>
+  <!-- 点数表示 -->
+  <div id="score">Score: 0</div>
+
+  <!-- 外部 JavaScript を読み込み -->
+  <script src="script.js"></script>
+</body>
+</html>
