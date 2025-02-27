@@ -14,44 +14,111 @@ navigator.mediaDevices.getUserMedia({ video: true })
     console.error("Webカメラにアクセスできません: ", err);
   });
 
-// 画像処理関数：各フレームごとに赤系シールを検出し、点数に換算
+// HSV変換関数
+function rgbToHsv(r, g, b) {
+  r /= 255, g /= 255, b /= 255;
+  let max = Math.max(r, g, b), min = Math.min(r, g, b);
+  let h, s, v = max;
+  let d = max - min;
+  s = max === 0 ? 0 : d / max;
+
+  if (max === min) {
+    h = 0;
+  } else {
+    switch (max) {
+      case r: h = (g - b) / d + (g < b ? 6 : 0); break;
+      case g: h = (b - r) / d + 2; break;
+      case b: h = (r - g) / d + 4; break;
+    }
+    h /= 6;
+  }
+  return [h * 360, s, v];
+}
+
+// ピンク色判定
+function isPinkColor(r, g, b) {
+  let [h, s, v] = rgbToHsv(r, g, b);
+  return (h > 270 && h < 330) && (s > 0.3) && (v > 0.4);
+}
+
+// 矩形描画とラベル表示
+function drawBoundingBoxes(ctx, stickers) {
+  ctx.strokeStyle = "blue";  // 矩形の色
+  ctx.lineWidth = 2;
+  ctx.font = "16px Arial";
+  ctx.fillStyle = "white";
+
+  stickers.forEach(sticker => {
+    let { x, y, width, height, count } = sticker;
+    ctx.strokeRect(x, y, width, height);  // 矩形を描画
+    ctx.fillText(`${count}点`, x, y - 5); // 近くのシール数を表示
+  });
+}
+
+// 近くのシールをグループ化
+function groupNearbyStickers(detectedStickers, threshold = 10) {
+  let groups = [];
+  let visited = new Set();
+
+  detectedStickers.forEach(sticker => {
+    let key = `${sticker.x},${sticker.y}`;
+    if (visited.has(key)) return;
+
+    let group = [sticker];
+    visited.add(key);
+
+    detectedStickers.forEach(other => {
+      let otherKey = `${other.x},${other.y}`;
+      if (!visited.has(otherKey) &&
+        Math.abs(sticker.x - other.x) < threshold &&
+        Math.abs(sticker.y - other.y) < threshold) {
+        group.push(other);
+        visited.add(otherKey);
+      }
+    });
+
+    let minX = Math.min(...group.map(s => s.x));
+    let minY = Math.min(...group.map(s => s.y));
+    let maxX = Math.max(...group.map(s => s.x));
+    let maxY = Math.max(...group.map(s => s.y));
+
+    groups.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY, count: group.length });
+  });
+
+  return groups;
+}
+
+// フレーム処理関数
 function processFrame() {
-  // 動画をキャンバスへ描画
   ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
   let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
   let data = imageData.data;
-  
-  let redPixelCount = 0;
-  // 各ピクセルをチェック
-  for (let i = 0; i < data.length; i += 4) {
-    const r = data[i];
-    const g = data[i + 1];
-    const b = data[i + 2];
-    // ここでは、赤が強く、緑・青が低い場合をシールとみなす
-    if (r > 150 && g < 100 && b < 100) {
-      redPixelCount++;
-      // デバッグ用：該当ピクセルを白くする場合は以下のコメントアウトを外す
-      // data[i] = 255;
-      // data[i + 1] = 255;
-      // data[i + 2] = 255;
+  let detectedStickers = [];
+
+  for (let y = 0; y < canvas.height; y += 5) {
+    for (let x = 0; x < canvas.width; x += 5) {
+      let i = (y * canvas.width + x) * 4;
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+
+      if (isPinkColor(r, g, b)) {
+        detectedStickers.push({ x, y });
+      }
     }
   }
-  
-  // デバッグ用に画像をキャンバスに反映させる場合は以下のコメントアウトを外す
-  // ctx.putImageData(imageData, 0, 0);
 
-  // シンプルな blob 判定：しきい値を元に検出件数を算出
-  const blobThreshold = 500; // 1シールあたりの目安となるピクセル数
-  const detectedBlobs = Math.floor(redPixelCount / blobThreshold);
+  // シールをグループ化
+  let groupedStickers = groupNearbyStickers(detectedStickers);
 
-  // 点数表示を更新
-  scoreDiv.textContent = 'Score: ' + detectedBlobs;
+  // 矩形とラベルを描画
+  drawBoundingBoxes(ctx, groupedStickers);
 
-  // 次のフレームで再処理
+  // 点数を表示
+  scoreDiv.textContent = `Score: ${groupedStickers.length}`;
+
   requestAnimationFrame(processFrame);
 }
 
-// 動画再生が始まったら処理開始
+// 動画が再生されたら開始
 video.addEventListener('playing', () => {
   requestAnimationFrame(processFrame);
 });
