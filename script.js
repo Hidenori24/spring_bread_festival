@@ -4,15 +4,15 @@ const canvas = document.getElementById('canvas');
 const ctx = canvas.getContext('2d');
 const scoreDiv = document.getElementById('score');
 
-// Webカメラにアクセス
-navigator.mediaDevices.getUserMedia({ video: true })
-  .then(stream => {
-    video.srcObject = stream;
-    video.play();
-  })
-  .catch(err => {
-    console.error("Webカメラにアクセスできません: ", err);
-  });
+// Webカメラにアクセス（背面カメラを指定）
+navigator.mediaDevices.getUserMedia({
+  video: { facingMode: "environment" } // ← 背面カメラ
+}).then(stream => {
+  video.srcObject = stream;
+  video.play();
+}).catch(err => {
+  console.error("Webカメラにアクセスできません: ", err);
+});
 
 // HSV変換関数
 function rgbToHsv(r, g, b) {
@@ -35,28 +35,45 @@ function rgbToHsv(r, g, b) {
   return [h * 360, s, v];
 }
 
-// ピンク色判定
+// ピンク色判定（HSVベース）
 function isPinkColor(r, g, b) {
   let [h, s, v] = rgbToHsv(r, g, b);
   return (h > 270 && h < 330) && (s > 0.3) && (v > 0.4);
 }
 
-// 矩形描画とラベル表示
-function drawBoundingBoxes(ctx, stickers) {
-  ctx.strokeStyle = "blue";  // 矩形の色
-  ctx.lineWidth = 2;
-  ctx.font = "16px Arial";
-  ctx.fillStyle = "white";
+// フレーム処理関数
+function processFrame() {
+  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
+  let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
+  let data = imageData.data;
+  let detectedStickers = [];
 
-  stickers.forEach(sticker => {
-    let { x, y, width, height, count } = sticker;
-    ctx.strokeRect(x, y, width, height);  // 矩形を描画
-    ctx.fillText(`${count}点`, x, y - 5); // 近くのシール数を表示
-  });
+  // 画像全体を5px間隔でスキャン（計算負荷を軽減）
+  for (let y = 0; y < canvas.height; y += 5) {
+    for (let x = 0; x < canvas.width; x += 5) {
+      let i = (y * canvas.width + x) * 4;
+      let r = data[i], g = data[i + 1], b = data[i + 2];
+
+      if (isPinkColor(r, g, b)) {
+        detectedStickers.push({ x, y });
+      }
+    }
+  }
+
+  // シールをグループ化し、矩形（外接四角形）を求める
+  let groupedStickers = groupNearbyStickers(detectedStickers);
+
+  // 矩形を描画（青色の枠）
+  drawBoundingBoxes(ctx, groupedStickers);
+
+  // 点数を表示
+  scoreDiv.textContent = `Score: ${groupedStickers.length}`;
+
+  requestAnimationFrame(processFrame);
 }
 
-// 近くのシールをグループ化
-function groupNearbyStickers(detectedStickers, threshold = 10) {
+// 近くのシールをグループ化し、矩形を取得
+function groupNearbyStickers(detectedStickers, threshold = 15) {
   let groups = [];
   let visited = new Set();
 
@@ -77,45 +94,36 @@ function groupNearbyStickers(detectedStickers, threshold = 10) {
       }
     });
 
+    // グループの最小矩形を求める
     let minX = Math.min(...group.map(s => s.x));
     let minY = Math.min(...group.map(s => s.y));
     let maxX = Math.max(...group.map(s => s.x));
     let maxY = Math.max(...group.map(s => s.y));
 
-    groups.push({ x: minX, y: minY, width: maxX - minX, height: maxY - minY, count: group.length });
+    groups.push({
+      x: minX,
+      y: minY,
+      width: maxX - minX,
+      height: maxY - minY,
+      count: group.length
+    });
   });
 
   return groups;
 }
 
-// フレーム処理関数
-function processFrame() {
-  ctx.drawImage(video, 0, 0, canvas.width, canvas.height);
-  let imageData = ctx.getImageData(0, 0, canvas.width, canvas.height);
-  let data = imageData.data;
-  let detectedStickers = [];
+// 矩形描画（青色の枠）
+function drawBoundingBoxes(ctx, stickers) {
+  ctx.strokeStyle = "blue";  // 矩形の色
+  ctx.lineWidth = 2;
+  ctx.font = "16px Arial";
+  ctx.fillStyle = "white";
 
-  for (let y = 0; y < canvas.height; y += 5) {
-    for (let x = 0; x < canvas.width; x += 5) {
-      let i = (y * canvas.width + x) * 4;
-      let r = data[i], g = data[i + 1], b = data[i + 2];
-
-      if (isPinkColor(r, g, b)) {
-        detectedStickers.push({ x, y });
-      }
-    }
-  }
-
-  // シールをグループ化
-  let groupedStickers = groupNearbyStickers(detectedStickers);
-
-  // 矩形とラベルを描画
-  drawBoundingBoxes(ctx, groupedStickers);
-
-  // 点数を表示
-  scoreDiv.textContent = `Score: ${groupedStickers.length}`;
-
-  requestAnimationFrame(processFrame);
+  stickers.forEach(sticker => {
+    let { x, y, width, height, count } = sticker;
+    ctx.strokeRect(x, y, width, height);  // 青色の枠を描画
+    ctx.fillText(`${count}点`, x + width / 2, y - 5); // 中心に近くのシール数を表示
+  });
 }
 
 // 動画が再生されたら開始
